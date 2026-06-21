@@ -1,46 +1,87 @@
--- --------------------------------------------------------
--- 主機:                           127.0.0.1
--- 伺服器版本:                        8.0.46 - MySQL Community Server - GPL
--- 伺服器作業系統:                      Win64
--- HeidiSQL 版本:                  12.18.0.7304
--- --------------------------------------------------------
+-- =================================================================
+-- 1. 投票系統 資料表與全功能預存程序建置腳本 (DDL)
+-- =================================================================
 
-/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
-/*!40101 SET NAMES utf8 */;
-/*!50503 SET NAMES utf8mb4 */;
-/*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */;
-/*!40103 SET TIME_ZONE='+00:00' */;
-/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
-/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
-/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
+-- -----------------------------------------------------------------
+-- [A] 刪除舊有物件（注意順序：紀錄表有外鍵，需先刪除）
+-- -----------------------------------------------------------------
+DROP PROCEDURE IF EXISTS `sp_get_voting_summary`;
+DROP PROCEDURE IF EXISTS `sp_get_all_items`;
+DROP PROCEDURE IF EXISTS `sp_insert_item`;
+DROP PROCEDURE IF EXISTS `sp_delete_item`;
+DROP PROCEDURE IF EXISTS `sp_insert_voting_record`;
 
+DROP TABLE IF EXISTS `voting_record`;
+DROP TABLE IF EXISTS `voting_item`;
 
--- 傾印 java_project 的資料庫結構
-CREATE DATABASE IF NOT EXISTS `java_project` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci */ /*!80016 DEFAULT ENCRYPTION='N' */;
-USE `java_project`;
+-- -----------------------------------------------------------------
+-- [B] 建立資料表結構
+-- -----------------------------------------------------------------
 
--- 傾印  資料表 java_project.voting_item 結構
-CREATE TABLE IF NOT EXISTS `voting_item` (
-  `id` int NOT NULL AUTO_INCREMENT COMMENT '流水號',
-  `Item` varchar(255) NOT NULL DEFAULT '' COMMENT '投票項目名稱',
+-- 1. 建立投票項目表 (voting_item)
+CREATE TABLE `voting_item` (
+  `id` INT NOT NULL AUTO_INCREMENT COMMENT '流水號，主鍵',
+  `Item` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT '' COMMENT '投票項目名稱',
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='投票項目';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='投票項目主表';
 
--- 取消選取資料匯出。
+-- 2. 建立投票紀錄表 (voting_record)
+CREATE TABLE `voting_record` (
+  `id` INT NOT NULL AUTO_INCREMENT COMMENT '流水號',
+  `Voters` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT '' COMMENT '投票人姓名',
+  `voting_item_id` INT DEFAULT 0 COMMENT '投票項目id',
+  `time` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '投票時間',
+  PRIMARY KEY (`id`),
+  CONSTRAINT `fk_voting_item_id` FOREIGN KEY (`voting_item_id`) REFERENCES `voting_item` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='使用者投票紀錄明細表';
 
--- 傾印  資料表 java_project.voting_record 結構
-CREATE TABLE IF NOT EXISTS `voting_record` (
-  `id` int NOT NULL AUTO_INCREMENT COMMENT '流水號',
-  `Voters` varchar(255) NOT NULL DEFAULT '' COMMENT '投票人',
-  `voting_item_id` int NOT NULL DEFAULT '0' COMMENT '投票項目id，對應voting_item.id',
-  `time` timestamp NOT NULL DEFAULT (now()),
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='投票紀錄';
 
--- 取消選取資料匯出。
+-- -----------------------------------------------------------------
+-- [C] 建立全功能預存程序 (Stored Procedures)
+-- -----------------------------------------------------------------
+DELIMITER //
 
-/*!40103 SET TIME_ZONE=IFNULL(@OLD_TIME_ZONE, 'system') */;
-/*!40101 SET SQL_MODE=IFNULL(@OLD_SQL_MODE, '') */;
-/*!40014 SET FOREIGN_KEY_CHECKS=IFNULL(@OLD_FOREIGN_KEY_CHECKS, 1) */;
-/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
-/*!40111 SET SQL_NOTES=IFNULL(@OLD_SQL_NOTES, 1) */;
+-- 1. 獲取前台累積票數統計摘要
+CREATE PROCEDURE `sp_get_voting_summary`()
+BEGIN
+    SELECT 
+        vi.`id`, 
+        vi.`Item`, 
+        COUNT(vr.`id`) AS `vote_count`
+    FROM `voting_item` vi
+    LEFT JOIN `voting_record` vr ON vi.`id` = vr.`voting_item_id`
+    GROUP BY vi.`id`, vi.`Item`;
+END //
+
+-- 2. 後台：查詢所有投票項目清單
+CREATE PROCEDURE `sp_get_all_items`()
+BEGIN
+    SELECT `id`, `Item` FROM `voting_item` ORDER BY `id` ASC;
+END //
+
+-- 3. 後台：新增投票項目 (帶有輸入參數 p_item_name)
+CREATE PROCEDURE `sp_insert_item`(
+    IN p_item_name VARCHAR(255)
+)
+BEGIN
+    INSERT INTO `voting_item` (`Item`) VALUES (p_item_name);
+END //
+
+-- 4. 後台：刪除指定投票項目 (帶有輸入參數 p_item_id)
+CREATE PROCEDURE `sp_delete_item`(
+    IN p_item_id INT
+)
+BEGIN
+    DELETE FROM `voting_item` WHERE `id` = p_item_id;
+END //
+
+-- 5. 前台：寫入單筆投票紀錄 (帶有輸入參數，供後端 Service 跑迴圈多選寫入)
+CREATE PROCEDURE `sp_insert_voting_record`(
+    IN p_voter_name VARCHAR(255),
+    IN p_item_id INT
+)
+BEGIN
+    INSERT INTO `voting_record` (`Voters`, `voting_item_id`) VALUES (p_voter_name, p_item_id);
+END //
+
+DELIMITER ;
